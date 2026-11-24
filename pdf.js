@@ -25,7 +25,8 @@
     return { sub: sub, btw: btw, totaal: r2(sub + btw) };
   }
 
-  function maak(f, inst) {
+  function maak(f, inst, soort) {
+    var off = soort === 'offerte';
     var jsPDF = root.jspdf.jsPDF;
     var doc = new jsPDF({ unit: 'mm', format: 'a4' });
     var W = 210, M = 20, y = 0;
@@ -47,12 +48,12 @@
     } else {
       doc.text(inst.naam || '', M, 24);
     }
-    doc.setFontSize(20); kleur(BLUE); doc.text('FACTUUR', W - M, 24, { align: 'right' });
+    doc.setFontSize(20); kleur(BLUE); doc.text(off ? 'OFFERTE' : 'FACTUUR', W - M, 24, { align: 'right' });
 
     // Van / Aan
     y = 38;
     doc.setFontSize(8); doc.setFont('helvetica', 'bold'); kleur(GREY);
-    doc.text('VAN', M, y); doc.text('FACTUUR AAN', 110, y);
+    doc.text('VAN', M, y); doc.text(off ? 'OFFERTE VOOR' : 'FACTUUR AAN', 110, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10); kleur(INK);
     var k = f.klant || {};
     var yl = lijnen([inst.naam, inst.contact, inst.adres, inst.postcodePlaats,
@@ -63,7 +64,8 @@
 
     // Meta
     doc.setFillColor(TINT[0], TINT[1], TINT[2]); doc.roundedRect(M, y, W - 2 * M, 22, 2, 2, 'F');
-    var meta = [['Factuurnummer', f.nummer], ['Factuurdatum', datum(f.datum)], ['Vervaldatum', datum(verval)], ['Betalingstermijn', (f.termijn || 30) + ' dagen']];
+    var meta = off ? [['Offertenummer', f.nummer], ['Offertedatum', datum(f.datum)], ['Geldig tot', datum(verval)], ['Geldigheid', (f.termijn || 30) + ' dagen']]
+      : [['Factuurnummer', f.nummer], ['Factuurdatum', datum(f.datum)], ['Vervaldatum', datum(verval)], ['Betalingstermijn', (f.termijn || 30) + ' dagen']];
     meta.forEach(function (m, i) {
       var x = M + 5 + i * 41;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); kleur(GREY); doc.text(m[0].toUpperCase(), x, y + 8);
@@ -112,18 +114,40 @@
     doc.text('BTW ' + String(+f.btwPct || 0).replace('.', ',') + '%', lx, y); doc.text(eur(t.btw), cx.bedrag, y, { align: 'right' }); y += 4;
     doc.setFillColor(TINT[0], TINT[1], TINT[2]); doc.roundedRect(lx - 4, y, W - M - lx + 4, 10, 2, 2, 'F');
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Totaal te betalen', lx, y + 6.8); doc.text(eur(t.totaal), cx.bedrag, y + 6.8, { align: 'right' });
+    doc.text(off ? 'Totaal offerte' : 'Totaal te betalen', lx, y + 6.8); doc.text(eur(t.totaal), cx.bedrag, y + 6.8, { align: 'right' });
     y += 22;
 
+    if (f.opmerking) {
+      if (y > 235) { doc.addPage(); y = 20; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); kleur(INK); doc.text('Opmerking', M, y);
+      doc.setFont('helvetica', 'normal'); y += 5.5;
+      var om = doc.splitTextToSize(f.opmerking, W - 2 * M);
+      doc.text(om, M, y); y += om.length * 5 + 7;
+    }
+    if (off) {
+      // Voorwaarden en akkoord
+      if (y > 215) { doc.addPage(); y = 20; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Voorwaarden', M, y);
+      doc.setFont('helvetica', 'normal'); y += 5.5;
+      var vw = doc.splitTextToSize('Deze offerte is geldig tot ' + datum(verval) + '. Na akkoord ontvang je een factuur met een betalingstermijn van ' + (inst.termijn || 30) + ' dagen.', W - 2 * M);
+      doc.text(vw, M, y); y += vw.length * 5 + 8;
+      doc.setFont('helvetica', 'bold'); doc.text('Akkoord', M, y);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); kleur(GREY);
+      y += 16;
+      doc.setDrawColor(GREY[0], GREY[1], GREY[2]); doc.setLineWidth(0.2);
+      doc.line(M, y, M + 70, y); doc.line(110, y, 110 + 60, y);
+      doc.text('Naam en handtekening', M, y + 4.5); doc.text('Datum', 110, y + 4.5);
+    } else {
     // Betaling
-    if (y > 245) { doc.addPage(); y = 20; }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Betaling', M, y);
-    doc.setFont('helvetica', 'normal'); y += 5.5;
-    var intro = doc.splitTextToSize('Graag het totaalbedrag van ' + eur(t.totaal) + ' binnen ' + (f.termijn || 30) +
-      ' dagen, uiterlijk ' + datum(verval) + ', overmaken naar:', W - 2 * M);
-    doc.text(intro, M, y); y += intro.length * 5 + 1;
-    y = lijnen(['IBAN: ' + (inst.iban || ''), 'T.n.v.: ' + (inst.tnv || ''), inst.bank ? 'Bank: ' + inst.bank : '',
-      'Onder vermelding van: factuurnummer ' + f.nummer], M, y, 5);
+      if (y > 245) { doc.addPage(); y = 20; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text('Betaling', M, y);
+      doc.setFont('helvetica', 'normal'); y += 5.5;
+      var intro = doc.splitTextToSize('Graag het totaalbedrag van ' + eur(t.totaal) + ' binnen ' + (f.termijn || 30) +
+        ' dagen, uiterlijk ' + datum(verval) + ', overmaken naar:', W - 2 * M);
+      doc.text(intro, M, y); y += intro.length * 5 + 1;
+      y = lijnen(['IBAN: ' + (inst.iban || ''), 'T.n.v.: ' + (inst.tnv || ''), inst.bank ? 'Bank: ' + inst.bank : '',
+        'Onder vermelding van: factuurnummer ' + f.nummer], M, y, 5);
+    }
 
     // Voet
     var pages = doc.getNumberOfPages();

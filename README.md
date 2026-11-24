@@ -6,6 +6,7 @@ Er is geen server en geen account bij deze app: de pagina praat alleen met Googl
 ## Wat komt waar terecht
 In je Drive maakt de app de map **Klaassen Productions Administratie** met daarin:
 - `Facturen/` met de factuur-PDF's
+- `Offertes/` met de offerte-PDF's
 - `Bonnetjes/` met je geüploade bonnetjes
 - `administratie-data.json` met klanten, facturen, bonnetjes en instellingen (dit is de bron voor het dashboard)
 

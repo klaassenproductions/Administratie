@@ -59,12 +59,12 @@
   }
 
   /* ---------- schil ---------- */
-  var TABS = [['dashboard', 'Dashboard'], ['facturen', 'Facturen'], ['bonnetjes', 'Bonnetjes'], ['instellingen', 'Instellingen']];
+  var TABS = [['dashboard', 'Dashboard'], ['offertes', 'Offertes'], ['facturen', 'Facturen'], ['bonnetjes', 'Bonnetjes'], ['instellingen', 'Instellingen']];
   function render() {
-    var v = VIEWS[view === 'nieuw' ? 'nieuw' : view]();
+    var v = VIEWS[view]();
     app.innerHTML = '<header class="top"><div class="wrap"><div class="brand">' + esc(data.instellingen.naam || 'Administratie') +
       '<small>Administratie</small></div><span id="status" class="pill ' + status.k + '">' + esc(status.t) + '</span><nav>' +
-      TABS.map(function (t) { return '<button data-v="' + t[0] + '" class="' + ((view === t[0] || (view === 'nieuw' && t[0] === 'facturen')) ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') +
+      TABS.map(function (t) { return '<button data-v="' + t[0] + '" class="' + ((view === t[0] || (view === 'nieuw' && t[0] === 'facturen') || (view === 'nieuwOff' && t[0] === 'offertes')) ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') +
       '</nav></div></header><main><div class="wrap"><div id="melding">' + meldingHtml() + '</div>' + v.html + '</div></main>';
     $$('nav button').forEach(function (b) { b.onclick = function () { view = b.dataset.v; melding = null; render(); window.scrollTo(0, 0); }; });
     if (v.after) v.after();
@@ -285,7 +285,7 @@
       c.kw.map(function (k, n) { return '<tr><td>Q' + (n + 1) + '</td><td class="r num">' + eur(r2(k.ont)) + '</td><td class="r num">' + eur(r2(k.voor)) + '</td><td class="r num"><b>' + eur(r2(k.ont - k.voor)) + '</b></td></tr>'; }).join('') +
       '</tbody></table><p class="hint" style="margin-top:10px">Aangifte uiterlijk aan het einde van de maand na het kwartaal. Btw rekent op factuurdatum.</p></div></div>' +
 
-      '<div class="grid g2"><div class="card"><h2>Openstaande facturen</h2>' + (open.length ? '<table><tbody>' + open.map(function (f) {
+      '<div class="grid g2"><div class="card"><h2>Openstaande facturen</h2>' + lopendeOffertes() + (open.length ? '<table><tbody>' + open.map(function (f) {
         var t = F.totalen(f), vd = F.plusDagen(f.datum, +f.termijn || 30), late = achterstallig(f);
         return '<tr><td>' + esc(f.nummer) + '<div class="hint">' + esc(f.klant.naam) + '</div></td><td class="r num">' + eur(t.totaal) + '<div class="hint">' +
           (late ? '<span class="pill bad">' + Math.abs(dagenTot(vd)) + ' dgn te laat</span>' : 'vervalt ' + F.datum(vd)) + '</div></td></tr>';
@@ -298,6 +298,12 @@
       dlBind();
     } };
   };
+  function lopendeOffertes() {
+    var l = data.offertes.filter(function (o) { return o.status === 'open' && !offerteVerlopen(o); });
+    if (!l.length) return '';
+    var som = 0; l.forEach(function (o) { som += F.totalen(o).sub; });
+    return '<div class="notice" style="margin-top:10px">' + l.length + ' lopende offerte' + (l.length > 1 ? 's' : '') + ' van samen ' + eur(r2(som)) + ' excl. btw. Nog geen omzet, tot je ze omzet naar een factuur.</div>';
+  }
   function tile(l, v, s, k) { return '<div class="tile ' + (k || '') + '"><div class="l">' + esc(l) + '</div><div class="v">' + v + '</div><div class="s">' + esc(s) + '</div></div>'; }
   function rij(a, b) { return '<tr><td>' + a + '</td><td class="r num">' + b + '</td></tr>'; }
 
@@ -344,30 +350,39 @@
     render(); bewaar();
   }
 
-  function volgendNummer(j) {
-    var max = 0;
-    data.facturen.forEach(function (f) { var m = /^(\d{4})-(\d+)$/.exec(f.nummer); if (m && +m[1] === j) max = Math.max(max, +m[2]); });
-    return j + '-' + String(max + 1).padStart(3, '0');
+  function volgendNummer(lijst, voor, j) {
+    var max = 0, re = new RegExp('^' + voor + '(\\d{4})-(\\d+)$');
+    lijst.forEach(function (f) { var m = re.exec(f.nummer); if (m && +m[1] === j) max = Math.max(max, +m[2]); });
+    return voor + j + '-' + String(max + 1).padStart(3, '0');
   }
 
-  VIEWS.nieuw = function () {
+  var prefill = null;
+  VIEWS.nieuw = function () { return docForm('factuur'); };
+  VIEWS.nieuwOff = function () { return docForm('offerte'); };
+
+  function docForm(soort) {
+    var off = soort === 'offerte', pf = prefill; prefill = null;
+    var woord = off ? 'offerte' : 'factuur', Woord = off ? 'Offerte' : 'Factuur';
     var i = data.instellingen, nu = vandaag();
-    var html = '<div class="row sp" style="margin-bottom:16px"><h1>Nieuwe factuur</h1><button class="b sec" id="terug">Annuleren</button></div>' +
-      (!i.kvk || !i.iban ? '<div class="notice err">Je bedrijfsgegevens zijn nog niet compleet (KvK, IBAN). Vul ze eerst in bij Instellingen, anders staan ze niet op de factuur.</div>' : '') +
+    var nr0 = off ? volgendNummer(data.offertes, 'O-', +nu.slice(0, 4)) : volgendNummer(data.facturen, '', +nu.slice(0, 4));
+    var html = '<div class="row sp" style="margin-bottom:16px"><h1>Nieuwe ' + woord + '</h1><button class="b sec" id="terug">Annuleren</button></div>' +
+      (!off && (!i.kvk || !i.iban) ? '<div class="notice err">Je bedrijfsgegevens zijn nog niet compleet (KvK, IBAN). Vul ze eerst in bij Instellingen, anders staan ze niet op de factuur.</div>' : '') +
+      (pf ? '<div class="notice">Gegevens overgenomen uit offerte ' + esc(pf.nummer) + '. Controleer alles voor je de factuur maakt.</div>' : '') +
       '<form id="ff"><div class="grid g2"><div class="card"><h2>Klant</h2><div class="f" style="margin-top:12px"><label>Naam</label><input id="k_naam" list="klanten" required autocomplete="off"><datalist id="klanten">' +
       data.klanten.map(function (k) { return '<option value="' + esc(k.naam) + '">'; }).join('') + '</datalist></div>' +
       '<div class="f"><label>Adres</label><input id="k_adres"></div><div class="f"><label>Postcode en plaats</label><input id="k_pp"></div>' +
       '<div class="grid g2"><div class="f"><label>KvK-nummer</label><input id="k_kvk"></div><div class="f"><label>BTW-nummer</label><input id="k_btw"></div></div>' +
       '<div class="grid g2"><div class="f"><label>E-mail</label><input id="k_mail"></div><div class="f"><label>Telefoon</label><input id="k_tel"></div></div></div>' +
-      '<div class="card"><h2>Factuur</h2><div class="grid g2" style="margin-top:12px"><div class="f"><label>Factuurnummer</label><input id="nr" value="' + volgendNummer(+nu.slice(0, 4)) + '" required></div>' +
-      '<div class="f"><label>Factuurdatum</label><input id="dat" type="date" value="' + nu + '" required></div>' +
-      '<div class="f"><label>Betalingstermijn (dagen)</label><input id="term" value="' + (i.termijn || 30) + '"></div>' +
+      '<div class="card"><h2>' + Woord + '</h2><div class="grid g2" style="margin-top:12px"><div class="f"><label>' + Woord + 'nummer</label><input id="nr" value="' + nr0 + '" required></div>' +
+      '<div class="f"><label>' + Woord + 'datum</label><input id="dat" type="date" value="' + nu + '" required></div>' +
+      '<div class="f"><label>' + (off ? 'Geldig (dagen)' : 'Betalingstermijn (dagen)') + '</label><input id="term" value="' + (off ? 30 : (i.termijn || 30)) + '"></div>' +
       '<div class="f"><label>Btw-tarief</label><select id="pct"><option value="21">21% (hoog)</option><option value="9">9% (laag)</option><option value="0">0%</option></select></div></div>' +
-      '<div class="f"><label>Betreft</label><input id="betreft" placeholder="Bijv. Headervideo De Basis"></div></div></div>' +
+      '<div class="f"><label>Betreft</label><input id="betreft" placeholder="Bijv. Headervideo De Basis"></div>' +
+      '<div class="f"><label>Opmerking (optioneel)</label><input id="opm" placeholder="Komt op de ' + woord + ' te staan"></div></div></div>' +
       '<div class="card"><h2>Werkzaamheden</h2><table class="lines" style="margin-top:8px"><thead><tr><th>Omschrijving</th><th style="width:90px">Aantal</th><th style="width:130px">Prijs excl. btw</th><th class="r" style="width:120px">Bedrag</th><th style="width:40px"></th></tr></thead><tbody id="regels"></tbody></table>' +
       '<button type="button" class="b sec sm" id="addr" style="margin:10px 0 16px">+ Regel</button>' +
-      '<div class="tot"><div><span>Totaal excl. btw</span><b id="t_sub"></b></div><div><span id="t_pl">BTW</span><b id="t_btw"></b></div><div class="big"><span>Totaal te betalen</span><span id="t_tot"></span></div></div></div>' +
-      '<div class="row"><button class="b" id="maak" type="submit">Factuur maken en opslaan in Drive</button></div></form>';
+      '<div class="tot"><div><span>Totaal excl. btw</span><b id="t_sub"></b></div><div><span id="t_pl">BTW</span><b id="t_btw"></b></div><div class="big"><span>' + (off ? 'Totaal offerte' : 'Totaal te betalen') + '</span><span id="t_tot"></span></div></div></div>' +
+      '<div class="row"><button class="b" id="maak" type="submit">' + Woord + ' maken en opslaan in Drive</button></div></form>';
     return { html: html, after: function () {
       var body = $('#regels');
       function addRegel(o) {
@@ -386,39 +401,91 @@
         $('#t_sub').textContent = eur(t.sub); $('#t_btw').textContent = eur(t.btw); $('#t_tot').textContent = eur(t.totaal);
         $('#t_pl').textContent = 'BTW ' + $('#pct').value + '%';
       }
-      $('#pct').value = String(i.btwPct != null ? i.btwPct : 21);
-      $('#pct').onchange = herreken; addRegel(); herreken();
-      $('#addr').onclick = function () { addRegel(); };
-      $('#terug').onclick = function () { ga('facturen'); };
-      $('#k_naam').onchange = function () {
-        var k = data.klanten.filter(function (x) { return x.naam === $('#k_naam').value; })[0]; if (!k) return;
+      function vulKlant(k) {
         $('#k_adres').value = k.adres || ''; $('#k_pp').value = k.postcodePlaats || ''; $('#k_kvk').value = k.kvk || '';
         $('#k_btw').value = k.btw || ''; $('#k_mail').value = k.email || ''; $('#k_tel').value = k.tel || '';
+      }
+      $('#pct').value = String(i.btwPct != null ? i.btwPct : 21);
+      $('#pct').onchange = herreken;
+      if (pf) {
+        $('#k_naam').value = pf.klant.naam; vulKlant(pf.klant); $('#betreft').value = pf.betreft || ''; $('#opm').value = pf.opmerking || '';
+        $('#pct').value = String(pf.btwPct);
+        pf.regels.forEach(function (r) { addRegel(r); });
+      } else addRegel();
+      herreken();
+      $('#addr').onclick = function () { addRegel(); };
+      $('#terug').onclick = function () { ga(off ? 'offertes' : 'facturen'); };
+      $('#k_naam').onchange = function () {
+        var k = data.klanten.filter(function (x) { return x.naam === $('#k_naam').value; })[0]; if (k) vulKlant(k);
       };
       $('#ff').onsubmit = async function (e) {
         e.preventDefault();
         var regels = lees().filter(function (r) { return r.omschrijving || r.prijs; });
         if (!regels.length) return toon('Voeg minimaal één regel toe.', 'err');
-        var nr = $('#nr').value.trim();
-        if (data.facturen.some(function (f) { return f.nummer === nr; })) return toon('Factuurnummer ' + nr + ' bestaat al.', 'err');
+        var nr = $('#nr').value.trim(), lijst = off ? data.offertes : data.facturen;
+        if (lijst.some(function (f) { return f.nummer === nr; })) return toon(Woord + 'nummer ' + nr + ' bestaat al.', 'err');
         var klant = { naam: $('#k_naam').value.trim(), adres: $('#k_adres').value.trim(), postcodePlaats: $('#k_pp').value.trim(), kvk: $('#k_kvk').value.trim(), btw: $('#k_btw').value.trim(), email: $('#k_mail').value.trim(), tel: $('#k_tel').value.trim() };
         var f = { id: Opslag.uid(), nummer: nr, datum: $('#dat').value, termijn: Math.max(0, parseInt($('#term').value, 10) || 30), klant: klant,
-          betreft: $('#betreft').value.trim(), regels: regels, btwPct: +$('#pct').value, status: 'open', betaaldatum: '' };
+          betreft: $('#betreft').value.trim(), opmerking: $('#opm').value.trim(), regels: regels, btwPct: +$('#pct').value, status: off ? 'open' : 'open', betaaldatum: '' };
+        if (off) f.factuurNr = '';
         var btn = $('#maak'); btn.disabled = true; btn.textContent = 'Bezig…';
         try {
-          var blob = F.maak(f, data.instellingen);
-          var naam = 'Factuur ' + f.nummer + ' - ' + klant.naam.replace(/[\\/:*?"<>|]/g, '') + '.pdf';
-          var up = await backend.upload('Facturen', naam, blob);
+          var blob = F.maak(f, data.instellingen, soort);
+          var naam = Woord + ' ' + f.nummer + ' - ' + klant.naam.replace(/[\\/:*?"<>|]/g, '') + '.pdf';
+          var up = await backend.upload(off ? 'Offertes' : 'Facturen', naam, blob);
           f.pdfId = up.id; f.pdfLink = up.link;
-          data.facturen.push(f);
+          lijst.push(f);
+          if (!off && pf && pf.id) {
+            var o = data.offertes.filter(function (x) { return x.id === pf.id; })[0];
+            if (o) { o.status = 'geaccepteerd'; o.factuurNr = f.nummer; }
+          }
           var bk = data.klanten.filter(function (x) { return x.naam === klant.naam; })[0];
           if (bk) Object.assign(bk, klant); else data.klanten.push(klant);
-          toon('Factuur ' + f.nummer + ' is gemaakt en opgeslagen. Open hem met de knop PDF.', 'ok');
-          view = 'facturen'; render(); bewaar();
-        } catch (er) { btn.disabled = false; btn.textContent = 'Factuur maken en opslaan in Drive'; toon('Factuur maken mislukt: ' + er.message, 'err'); }
+          toon(Woord + ' ' + f.nummer + ' is gemaakt en opgeslagen. Open hem met de knop PDF.', 'ok');
+          view = off ? 'offertes' : 'facturen'; render(); bewaar();
+        } catch (er) { btn.disabled = false; btn.textContent = Woord + ' maken en opslaan in Drive'; toon(Woord + ' maken mislukt: ' + er.message, 'err'); }
       };
     } };
+  }
+
+  /* --- offertes --- */
+  function offerteVerlopen(o) { return o.status === 'open' && F.plusDagen(o.datum, +o.termijn || 30) < vandaag(); }
+  VIEWS.offertes = function () {
+    var lijst = data.offertes.slice().sort(function (a, b) { return a.nummer < b.nummer ? 1 : -1; });
+    var html = '<div class="row sp" style="margin-bottom:16px"><h1>Offertes</h1><button class="b" id="nieuwO">+ Nieuwe offerte</button></div><div class="card" style="padding:0;overflow:auto">' +
+      (lijst.length ? '<table><thead><tr><th>Nummer</th><th>Datum</th><th>Klant</th><th class="r">Bedrag</th><th>Status</th><th></th></tr></thead><tbody>' +
+        lijst.map(function (o) {
+          var t = F.totalen(o);
+          var st = o.status === 'geaccepteerd' ? '<span class="pill ok">Geaccepteerd' + (o.factuurNr ? ' · factuur ' + esc(o.factuurNr) : '') + '</span>' :
+            o.status === 'afgewezen' ? '<span class="pill bad">Afgewezen</span>' :
+            offerteVerlopen(o) ? '<span class="pill warn">Verlopen</span>' : '<span class="pill">Open tot ' + esc(F.datum(F.plusDagen(o.datum, +o.termijn || 30))) + '</span>';
+          return '<tr><td><b>' + esc(o.nummer) + '</b></td><td class="num">' + F.datum(o.datum) + '</td><td>' + esc(o.klant.naam) + '<div class="hint">' + esc(o.betreft || '') + '</div></td>' +
+            '<td class="r num">' + eur(t.totaal) + '<div class="hint">excl. ' + eur(t.sub) + '</div></td><td>' + st + '</td>' +
+            '<td class="r" style="white-space:nowrap">' + (o.pdfId ? '<button class="b sm sec" data-a="pdf" data-id="' + o.id + '">PDF</button> ' : '') +
+            (o.status === 'open' ? '<button class="b sm sec" data-a="acc" data-id="' + o.id + '">Geaccepteerd</button> <button class="b sm sec" data-a="afw" data-id="' + o.id + '">Afgewezen</button> ' : '<button class="b sm sec" data-a="heropen" data-id="' + o.id + '">Heropen</button> ') +
+            (o.status !== 'afgewezen' && !o.factuurNr ? '<button class="b sm" data-a="fac" data-id="' + o.id + '">Maak factuur</button> ' : '') +
+            '<button class="b sm del" data-a="del" data-id="' + o.id + '">Verwijder</button></td></tr>';
+        }).join('') + '</tbody></table>' : '<p class="hint" style="padding:20px">Nog geen offertes. Maak je eerste offerte aan.</p>') + '</div>' +
+      '<p class="hint">Met "Maak factuur" neem je de regels van een offerte over in een nieuwe factuur. Offertes tellen niet mee in je omzet, btw of belastingschatting. Dat doen alleen facturen.</p>';
+    return { html: html, after: function () {
+      $('#nieuwO').onclick = function () { melding = null; ga('nieuwOff'); };
+      $$('[data-a]').forEach(function (b) { b.onclick = function () { offerteActie(b.dataset.a, b.dataset.id); }; });
+    } };
   };
+  async function offerteActie(a, id) {
+    var o = data.offertes.filter(function (x) { return x.id === id; })[0]; if (!o) return;
+    if (a === 'pdf') return openBestand(o.pdfId, 'Offerte ' + o.nummer + '.pdf');
+    if (a === 'fac') { prefill = o; melding = null; return ga('nieuw'); }
+    if (a === 'acc') o.status = 'geaccepteerd';
+    if (a === 'afw') o.status = 'afgewezen';
+    if (a === 'heropen') { o.status = 'open'; }
+    if (a === 'del') {
+      if (!confirm('Offerte ' + o.nummer + ' verwijderen? Het PDF-bestand gaat naar de prullenbak van je Drive.')) return;
+      if (o.pdfId) { try { await backend.verwijder(o.pdfId); } catch (e) { toon('PDF verwijderen mislukt: ' + e.message, 'err'); } }
+      data.offertes = data.offertes.filter(function (x) { return x.id !== id; });
+    }
+    render(); bewaar();
+  }
 
   /* --- bonnetjes --- */
   var CATS = ['Apparatuur', 'Software', 'Reiskosten', 'Verzekering', 'Marketing', 'Kantoor', 'Opleiding', 'Overig'];
