@@ -4,7 +4,7 @@
   var SCOPE = 'https://www.googleapis.com/auth/drive.file';
   var ROOT_NAME = 'Klaassen Productions Administratie';
   var DATA_NAME = 'administratie-data.json';
-  var FOLDERS = ['Facturen', 'Bonnetjes'];
+  var FOLDERS = ['Facturen', 'Offertes', 'Bonnetjes'];
 
   function emptyData() {
     return {
@@ -14,7 +14,7 @@
         kvk: '', btw: '', iban: '', tnv: '', bank: '', email: '',
         termijn: 30, btwPct: 21, loon: 0, urencriterium: 'onzeker', starter: true
       },
-      klanten: [], facturen: [], bonnetjes: []
+      klanten: [], facturen: [], bonnetjes: [], offertes: [], afgerond: {}
     };
   }
 
@@ -23,7 +23,7 @@
   /* ---------- Google Drive ---------- */
   function GoogleBackend(clientId) {
     var token = null, tokenExp = 0, tc = null;
-    var ids = { root: null, Facturen: null, Bonnetjes: null, data: null };
+    var ids = { root: null, Facturen: null, Offertes: null, Bonnetjes: null, data: null };
     var self = this;
     this.naam = 'Google Drive';
 
@@ -118,7 +118,7 @@
       var d = await r.json();
       var e = emptyData();
       d.instellingen = Object.assign(e.instellingen, d.instellingen || {});
-      d.klanten = d.klanten || []; d.facturen = d.facturen || []; d.bonnetjes = d.bonnetjes || [];
+      d.klanten = d.klanten || []; d.facturen = d.facturen || []; d.bonnetjes = d.bonnetjes || []; d.afgerond = d.afgerond || {}; d.offertes = d.offertes || [];
       return d;
     };
 
@@ -177,6 +177,8 @@
         { id: uid(), nummer: y + '-003', datum: y + '-09-02', termijn: 14, klant: klant, betreft: 'Fotoshoot (demo)',
           regels: [{ omschrijving: 'Fotoshoot incl. nabewerking', aantal: 1, prijs: 600 }],
           btwPct: 21, status: 'open', betaaldatum: '' });
+      d.offertes.push({ id: uid(), nummer: 'O-' + y + '-001', datum: y + '-11-15', termijn: 30, klant: klant, betreft: 'Videoserie (demo)',
+        regels: [{ omschrijving: 'Montage 6 video\'s', aantal: 6, prijs: 90 }, { omschrijving: 'Eindscherm ontwerpen', aantal: 1, prijs: 120 }], btwPct: 21, status: 'open', factuurNr: '' });
       d.bonnetjes.push(
         { id: uid(), datum: y + '-10-30', leverancier: 'Voorbeeld Camerashop', omschrijving: 'SD-kaarten', categorie: 'Apparatuur', bedragIncl: 121, btwBedrag: 21, fileId: '', fileName: '' },
         { id: uid(), datum: y + '-11-12', leverancier: 'Voorbeeld Software', omschrijving: 'Abonnement montage', categorie: 'Software', bedragIncl: 30.25, btwBedrag: 5.25, fileId: '', fileName: '' });
