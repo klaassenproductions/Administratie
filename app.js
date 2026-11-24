@@ -134,6 +134,117 @@
   }
 
   /* ---------- weergaven ---------- */
+  /* ---------- aangiftes en deadlines ---------- */
+  var MAANDEN = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+  var openDl = null;
+  function iso(y, m, d) { return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
+  function weekend(isoD) { var w = new Date(isoD + 'T12:00:00').getDay(); return w === 0 || w === 6; }
+  function datumWd(isoD) { return F.datum(isoD) + (weekend(isoD) ? ' (valt in het weekend)' : ''); }
+
+  function kwartaalBtw(j, q) {
+    var van = iso(j, q * 3 + 1, 1), tot = iso(j, q * 3 + 3, 31);
+    var r = { omzetH: 0, btwH: 0, omzetL: 0, btwL: 0, omzet0: 0, voor: 0 };
+    data.facturen.forEach(function (f) {
+      if (f.datum < van || f.datum > tot) return;
+      var t = F.totalen(f);
+      if (+f.btwPct === 21) { r.omzetH += t.sub; r.btwH += t.btw; }
+      else if (+f.btwPct === 9) { r.omzetL += t.sub; r.btwL += t.btw; }
+      else r.omzet0 += t.sub;
+    });
+    data.bonnetjes.forEach(function (b) { if (b.datum >= van && b.datum <= tot) r.voor += +b.btwBedrag; });
+    Object.keys(r).forEach(function (k) { r[k] = r2(r[k]); });
+    r.saldo = r2(r.btwH + r.btwL - r.voor);
+    return r;
+  }
+
+  function startDatum() {
+    var s = data.instellingen.startdatum || '';
+    if (s) return s;
+    var alle = data.facturen.map(function (f) { return f.datum; }).concat(data.bonnetjes.map(function (b) { return b.datum; })).sort();
+    return alle[0] || '';
+  }
+  function deadlines(j, c) {
+    var lijst = [], i = data.instellingen;
+    var eind = [[3, 31], [6, 30], [9, 30], [12, 31]];
+    for (var q = 0; q < 4; q++) {
+      var kwEinde = iso(j, eind[q][0], eind[q][1]);
+      var open = F.plusDagen(kwEinde, 1);
+      var m = q * 3 + 4; var jr = j; if (m > 12) { m -= 12; jr = j + 1; }
+      var laatste = new Date(jr, m, 0).getDate();
+      var dl = iso(jr, m, laatste);
+      lijst.push({ key: 'btw-' + j + '-Q' + (q + 1), soort: 'btw', q: q, titel: 'Btw-aangifte Q' + (q + 1) + ' ' + j, periode: 'Q' + (q + 1) + ' ' + j, kwEinde: kwEinde, open: open, deadline: dl });
+    }
+    lijst.push({ key: 'ib-' + j, soort: 'ib', titel: 'Aangifte inkomstenbelasting ' + j, open: iso(j + 1, 3, 1), deadline: iso(j + 1, 5, 1), uitstel: iso(j + 1, 9, 1) });
+    var start = startDatum();
+    lijst = lijst.filter(function (d) { return d.soort === 'btw' ? (start && d.kwEinde >= start) || (!start && d.kwEinde >= vandaag()) : (start ? j >= +start.slice(0, 4) : j >= new Date().getFullYear()); });
+    lijst.sort(function (x, y) { return x.deadline < y.deadline ? -1 : 1; });
+    return lijst;
+  }
+
+  function dlStatus(d) {
+    var nu = vandaag();
+    if (data.afgerond[d.key]) return { t: 'Gedaan', k: 'ok' };
+    if (nu > d.deadline) return { t: 'Verlopen. Doe dit nu', k: 'bad' };
+    if (nu >= d.open) {
+      var n = dagenTot(d.deadline);
+      return { t: n === 0 ? 'Vandaag deadline' : 'Kan nu, nog ' + n + ' dgn', k: n <= 14 ? 'warn' : '' };
+    }
+    return { t: 'Opent over ' + dagenTot(d.open) + ' dgn', k: '' };
+  }
+
+  function dlUitleg(d, c) {
+    var i = data.instellingen, h;
+    if (d.soort === 'btw') {
+      var b = kwartaalBtw(+d.key.split('-')[1], d.q);
+      h = '<p>Je doet btw-aangifte in <b>Mijn Belastingdienst Zakelijk</b> over de periode ' + esc(d.periode) + '. De aangifte én de betaling moeten uiterlijk op <b>' + datumWd(d.deadline) + '</b> binnen zijn. Je kunt aangifte doen vanaf ' + F.datum(d.open) + '. Heb je geen omzet gehad? Dan doe je toch een aangifte (nihilaangifte).</p>' +
+        '<p class="hint">Het kwartaal loopt tot en met ' + F.datum(d.kwEinde) + '. Staat in je aangiftebrief van de Belastingdienst een ander tijdvak (bijvoorbeeld per maand of per jaar)? Dan geldt dat.</p>' +
+        '<h3 style="margin:12px 0 6px">Dit vul je in (uit je administratie)</h3><table><tbody>' +
+        rij('Rubriek 1a, omzet hoog tarief (21%)', eur(b.omzetH) + ' &nbsp;·&nbsp; btw ' + eur(b.btwH)) +
+        (b.omzetL ? rij('Rubriek 1b, omzet laag tarief (9%)', eur(b.omzetL) + ' &nbsp;·&nbsp; btw ' + eur(b.btwL)) : '') +
+        (b.omzet0 ? rij('Rubriek 1e, omzet 0% of niet belast', eur(b.omzet0)) : '') +
+        rij('Rubriek 5b, voorbelasting (btw op je bonnetjes)', eur(b.voor)) +
+        '</tbody><tfoot><tr><td>' + (b.saldo >= 0 ? 'Te betalen' : 'Terug te krijgen') + '</td><td class="r num">' + eur(Math.abs(b.saldo)) + '</td></tr></tfoot></table>' +
+        '<ol class="help"><li>Controleer eerst of alle facturen en bonnetjes van dit kwartaal in de app staan.</li><li>Log in op Mijn Belastingdienst Zakelijk en start de aangifte voor dit tijdvak.</li><li>Vul de bedragen hierboven in. Het saldo moet kloppen met wat de Belastingdienst uitrekent.</li><li>Betaal het bedrag via de betaalgegevens onderaan de aangifte (iDEAL kan). Je krijgt geen aparte aanslag.</li></ol>' +
+        '<p class="hint">Alleen btw die je mag aftrekken telt mee bij 5b. Voor sommige kosten (bijvoorbeeld bepaalde representatiekosten) mag je de btw niet aftrekken. Twijfel je? Check de uitleg van de Belastingdienst.</p>' +
+        '<p><a target="_blank" rel="noopener" href="https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/btw/btw_aangifte_doen_en_betalen/">Uitleg btw-aangifte (Belastingdienst)</a></p>';
+    } else {
+      var j = +d.key.split('-')[1];
+      h = '<p>Je doet de aangifte inkomstenbelasting over ' + j + ' in <b>Mijn Belastingdienst</b>. Dat kan vanaf <b>' + datumWd(d.open) + '</b>. Uiterlijk <b>' + datumWd(d.deadline) + '</b> moet hij binnen zijn. De exacte datum staat op je aangiftebrief.</p>' +
+        '<p>Lukt dat niet? Vraag dan <b>vóór ' + F.datum(d.deadline) + '</b> uitstel aan. Je hebt dan tot ' + F.datum(d.uitstel) + '. Na de deadline kan dat niet meer. Betaal je later dan de deadline, dan kan belastingrente gelden.</p>' +
+        '<h3 style="margin:12px 0 6px">Dit heb je nodig (uit je administratie, ' + j + ')</h3><table><tbody>' +
+        rij('Omzet excl. btw', eur(c.omzet)) + rij('Zakelijke kosten excl. btw', eur(c.kosten)) + rij('Winst uit onderneming', '<b>' + eur(c.winst) + '</b>') +
+        rij('Geschatte inkomstenbelasting + Zvw', eur(c.hoofd.totaal)) + '</tbody></table>' +
+        '<ol class="help"><li>Je hebt in de aangifte een privé-deel en een zakelijk deel. Je loonbrief van je baan staat meestal al voor je ingevuld.</li><li>Vul in het zakelijke deel je winst in. Bij je eerste aangifte krijg je vragen over je start (datum, uren).</li><li>Beantwoord de vraag over het <b>urencriterium</b> eerlijk. Alleen bij 1.225 uur én meer dan de helft van je werktijd krijg je zelfstandigen- en startersaftrek.</li><li>Controleer je winst en kosten met de bonnetjes in je Drive en verstuur de aangifte.</li></ol>' +
+        '<p class="hint">Houd een urenregistratie bij, ook als je het urencriterium waarschijnlijk niet haalt. Je moet kunnen aantonen waarom je aftrek wel of niet claimt. Je schatting hier is een indicatie, de Belastingdienst berekent het definitieve bedrag.</p>' +
+        '<p><a target="_blank" rel="noopener" href="https://www.kvk.nl/starten/eerste-keer-aangifte-inkomstenbelasting-als-ondernemer/">Uitleg eerste aangifte als ondernemer (KVK)</a></p>';
+    }
+    return h;
+  }
+
+  function dlKaart(j, c) {
+    var items = deadlines(j, c);
+    if (!items.length) return '<div class="card"><h2>Aangiftes en deadlines ' + j + '</h2><p class="hint">Voor ' + j + ' zijn er (nog) geen aangiftes. Vul bij Instellingen de startdatum van je bedrijf in, dan toont de app de juiste kwartalen.</p></div>';
+    return '<div class="card"><div class="row sp"><h2>Aangiftes en deadlines ' + j + '</h2><span class="hint">Klik op een regel voor uitleg</span></div><div style="margin-top:8px">' +
+      items.map(function (d) {
+        var s = dlStatus(d);
+        return '<details class="dl" data-key="' + esc(d.key) + '"><summary><span class="dlt">' + esc(d.titel) + '</span><span class="dld">kan vanaf ' + F.datum(d.open) + ' · uiterlijk <b>' + F.datum(d.deadline) + '</b></span><span class="pill ' + s.k + '">' + esc(s.t) + '</span></summary>' +
+          '<div class="dlb">' + dlUitleg(d, c) + '<button class="b sm ' + (data.afgerond[d.key] ? 'sec' : '') + '" data-done="' + esc(d.key) + '">' + (data.afgerond[d.key] ? 'Markeer als niet gedaan' : 'Markeer als gedaan') + '</button></div></details>';
+      }).join('') + '</div></div>';
+  }
+  function dlBind() {
+    $$('details.dl').forEach(function (el) {
+      if (el.dataset.key === openDl) el.open = true;
+      el.addEventListener('toggle', function () { if (el.open) openDl = el.dataset.key; else if (openDl === el.dataset.key) openDl = null; });
+    });
+    $$('[data-done]').forEach(function (b) {
+      b.onclick = function () {
+        var k = b.dataset.done; openDl = k;
+        if (data.afgerond[k]) delete data.afgerond[k]; else data.afgerond[k] = vandaag();
+        render(); bewaar();
+      };
+    });
+  }
+
   var VIEWS = {};
 
   VIEWS.dashboard = function () {
@@ -154,6 +265,7 @@
       tile('Inkomstenbelasting + Zvw opzij', eur(c.hoofd.totaal), 'schatting, zie berekening hieronder', 'tx') +
       tile('Naar schatting over', eur(c.netto), 'winst min belasting en Zvw (btw telt niet mee)', 'hl') + '</div>' +
 
+      dlKaart(jaar, c) +
       '<div class="card"><h2>Waar gaat je omzet heen?</h2><p class="hint">Over ' + eur(c.omzet) + ' omzet excl. btw</p>' +
       '<div class="bar"><div data-w="' + segKosten + '" style="background:#9db3c4">' + (segKosten > 9 ? 'Kosten' : '') + '</div><div data-w="' + segBel + '" style="background:#d9822b">' + (segBel > 9 ? 'Belasting' : '') + '</div><div data-w="' + segNetto + '" style="background:#38a9e6">' + (segNetto > 9 ? 'Over' : '') + '</div></div>' +
       '<div class="legend"><span><i style="background:#9db3c4"></i>Kosten ' + eur(c.kosten) + '</span><span><i style="background:#d9822b"></i>Inkomstenbelasting + Zvw ' + eur(c.hoofd.totaal) + '</span><span><i style="background:#38a9e6"></i>Over ' + eur(c.netto) + '</span></div></div>' +
@@ -183,6 +295,7 @@
     return { html: html, after: function () {
       $('#jaar').onchange = function () { jaar = +this.value; render(); };
       $$('.bar div').forEach(function (d) { d.style.width = d.dataset.w + '%'; });
+      dlBind();
     } };
   };
   function tile(l, v, s, k) { return '<div class="tile ' + (k || '') + '"><div class="l">' + esc(l) + '</div><div class="v">' + v + '</div><div class="s">' + esc(s) + '</div></div>'; }
@@ -384,7 +497,7 @@
       fld('s_email', 'E-mail', i.email) + '<div class="grid g2">' + fld('s_kvk', 'KvK-nummer', i.kvk) + fld('s_btw', 'BTW-nummer', i.btw) + '</div>' +
       fld('s_iban', 'IBAN', i.iban) + '<div class="grid g2">' + fld('s_tnv', 'Ten name van', i.tnv) + fld('s_bank', 'Bank', i.bank) + '</div>' +
       '<div class="grid g2">' + fld('s_term', 'Standaard betalingstermijn (dagen)', i.termijn) + '<div class="f"><label>Standaard btw-tarief</label><select id="s_pct"><option value="21">21%</option><option value="9">9%</option><option value="0">0%</option></select></div></div></div></div>' +
-      '<div><div class="card"><h2>Belastingschatting</h2><div style="margin-top:12px">' + fld('s_loon', 'Bruto jaarloon uit je baan (0 als je geen baan hebt)', i.loon, 'inputmode="decimal"') +
+      '<div><div class="card"><h2>Belastingschatting</h2><div style="margin-top:12px">' + fld('s_start0', 'Startdatum bedrijf (inschrijving KvK)', i.startdatum || '', 'type="date"') + fld('s_loon', 'Bruto jaarloon uit je baan (0 als je geen baan hebt)', i.loon, 'inputmode="decimal"') +
       '<div class="f"><label>Haal je het urencriterium (1.225 uur én meer dan 50% van je werktijd)?</label><select id="s_uren"><option value="onzeker">Weet ik nog niet (voorzichtig rekenen)</option><option value="nee">Nee</option><option value="ja">Ja</option></select></div>' +
       '<div class="f"><label><input type="checkbox" id="s_start" style="width:auto;margin-right:6px" ' + (i.starter ? 'checked' : '') + '>Ik ben starter (startersaftrek, alleen bij urencriterium)</label></div>' +
       '<p class="hint">Zonder urencriterium krijg je geen zelfstandigen- en startersaftrek. De MKB-winstvrijstelling krijg je altijd.</p></div></div>' +
@@ -408,7 +521,7 @@
         e.preventDefault();
         Object.assign(data.instellingen, { naam: $('#s_naam').value.trim(), contact: $('#s_contact').value.trim(), adres: $('#s_adres').value.trim(), postcodePlaats: $('#s_pp').value.trim(),
           email: $('#s_email').value.trim(), kvk: $('#s_kvk').value.trim(), btw: $('#s_btw').value.trim(), iban: $('#s_iban').value.trim(), tnv: $('#s_tnv').value.trim(), bank: $('#s_bank').value.trim(),
-          termijn: parseInt($('#s_term').value, 10) || 30, btwPct: +$('#s_pct').value, loon: num($('#s_loon').value), urencriterium: $('#s_uren').value, starter: $('#s_start').checked });
+          termijn: parseInt($('#s_term').value, 10) || 30, btwPct: +$('#s_pct').value, loon: num($('#s_loon').value), startdatum: $('#s_start0').value, urencriterium: $('#s_uren').value, starter: $('#s_start').checked });
         if (nieuwLogo) Object.assign(data.instellingen, nieuwLogo);
         toon('Instellingen opgeslagen.', 'ok'); render(); bewaar();
       };

@@ -74,3 +74,15 @@ input:focus,select:focus{outline:2px solid var(--blue);outline-offset:-1px}
 .right{margin-left:auto}
 details summary{cursor:pointer;font-weight:600;color:var(--blue-d)}
 @media print{header.top,nav{display:none}}
+
+details.dl{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:#fff}
+details.dl[open]{border-color:var(--blue);background:var(--tint2)}
+details.dl summary{display:grid;grid-template-columns:1.2fr 1.6fr auto;gap:12px;align-items:center;padding:12px 14px;cursor:pointer;list-style:none;color:var(--ink);font-weight:400}
+details.dl summary::-webkit-details-marker{display:none}
+.dlt::before{content:"\25B8";color:var(--blue-d);margin-right:8px;display:inline-block}
+details.dl[open] .dlt::before{content:"\25BE"}
+.dlt{font-weight:700}.dld{color:var(--grey);font-size:13.5px}
+.dlb{padding:2px 16px 16px}
+.dlb p{margin:8px 0}
+.dlb ol{margin:8px 0}
+@media(max-width:700px){details.dl summary{grid-template-columns:1fr}}
