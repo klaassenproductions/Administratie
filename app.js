@@ -357,21 +357,49 @@
   };
 
   /* --- instellingen --- */
+  function logoHtml(src) { return src ? '<img src="' + esc(src) + '" alt="Logo" style="max-width:220px;max-height:80px">' : 'Nog geen logo. De factuur toont dan je bedrijfsnaam als tekst.'; }
+  function verkleinLogo(file) {
+    return new Promise(function (res, rej) {
+      var fr = new FileReader();
+      fr.onerror = function () { rej(new Error('Bestand lezen mislukt')); };
+      fr.onload = function () {
+        var im = new Image();
+        im.onerror = function () { rej(new Error('Geen geldige afbeelding')); };
+        im.onload = function () {
+          var w = Math.min(900, im.naturalWidth), h = Math.round(im.naturalHeight * w / im.naturalWidth);
+          var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(im, 0, 0, w, h);
+          res({ logo: cv.toDataURL('image/png'), logoRatio: h / w });
+        };
+        im.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
   VIEWS.instellingen = function () {
-    var i = data.instellingen;
+    var i = data.instellingen, nieuwLogo = null;
     function fld(id, label, val, extra) { return '<div class="f"><label for="' + id + '">' + label + '</label><input id="' + id + '" value="' + esc(val) + '" ' + (extra || '') + '></div>'; }
     var html = '<h1 style="margin-bottom:16px">Instellingen</h1><form id="sf"><div class="grid g2"><div class="card"><h2>Jouw bedrijfsgegevens</h2><div style="margin-top:12px">' +
       fld('s_naam', 'Bedrijfsnaam', i.naam) + fld('s_contact', 'Naam op factuur', i.contact) + fld('s_adres', 'Adres', i.adres) + fld('s_pp', 'Postcode en plaats', i.postcodePlaats) +
       fld('s_email', 'E-mail', i.email) + '<div class="grid g2">' + fld('s_kvk', 'KvK-nummer', i.kvk) + fld('s_btw', 'BTW-nummer', i.btw) + '</div>' +
       fld('s_iban', 'IBAN', i.iban) + '<div class="grid g2">' + fld('s_tnv', 'Ten name van', i.tnv) + fld('s_bank', 'Bank', i.bank) + '</div>' +
       '<div class="grid g2">' + fld('s_term', 'Standaard betalingstermijn (dagen)', i.termijn) + '<div class="f"><label>Standaard btw-tarief</label><select id="s_pct"><option value="21">21%</option><option value="9">9%</option><option value="0">0%</option></select></div></div></div></div>' +
-      '<div class="card"><h2>Belastingschatting</h2><div style="margin-top:12px">' + fld('s_loon', 'Bruto jaarloon uit je baan (0 als je geen baan hebt)', i.loon, 'inputmode="decimal"') +
+      '<div><div class="card"><h2>Belastingschatting</h2><div style="margin-top:12px">' + fld('s_loon', 'Bruto jaarloon uit je baan (0 als je geen baan hebt)', i.loon, 'inputmode="decimal"') +
       '<div class="f"><label>Haal je het urencriterium (1.225 uur én meer dan 50% van je werktijd)?</label><select id="s_uren"><option value="onzeker">Weet ik nog niet (voorzichtig rekenen)</option><option value="nee">Nee</option><option value="ja">Ja</option></select></div>' +
       '<div class="f"><label><input type="checkbox" id="s_start" style="width:auto;margin-right:6px" ' + (i.starter ? 'checked' : '') + '>Ik ben starter (startersaftrek, alleen bij urencriterium)</label></div>' +
-      '<p class="hint">Zonder urencriterium krijg je geen zelfstandigen- en startersaftrek. De MKB-winstvrijstelling krijg je altijd.</p></div></div></div>' +
+      '<p class="hint">Zonder urencriterium krijg je geen zelfstandigen- en startersaftrek. De MKB-winstvrijstelling krijg je altijd.</p></div></div>' +
+      '<div class="card"><h2>Logo op de factuur</h2><div style="margin-top:12px"><div id="logoPrev" class="hint">' + logoHtml(i.logo) + '</div>' +
+      '<div class="row" style="margin-top:10px"><input id="s_logo" type="file" accept="image/png,image/jpeg" style="width:auto"><button type="button" class="b sm del" id="logoDel">Logo verwijderen</button></div>' +
+      '<p class="hint" style="margin-top:8px">Liefst een PNG met transparante achtergrond. Het logo wordt opgeslagen in je eigen Drive.</p></div></div></div></div>' +
       '<div class="row"><button class="b" type="submit">Opslaan</button><button type="button" class="b sec" id="export">Back-up downloaden (JSON)</button>' + (backend.mapLink() ? '<a class="b sec" target="_blank" rel="noopener" href="' + esc(backend.mapLink()) + '">Open Drive-map</a>' : '') + '</div></form>';
     return { html: html, after: function () {
       $('#s_pct').value = String(i.btwPct != null ? i.btwPct : 21); $('#s_uren').value = i.urencriterium || 'onzeker';
+      $('#s_logo').onchange = async function () {
+        var f = this.files[0]; if (!f) return;
+        try { nieuwLogo = await verkleinLogo(f); $('#logoPrev').innerHTML = logoHtml(nieuwLogo.logo); }
+        catch (e) { toon(e.message, 'err'); }
+      };
+      $('#logoDel').onclick = function () { nieuwLogo = { logo: '', logoRatio: 0 }; $('#logoPrev').innerHTML = logoHtml(''); };
       $('#export').onclick = function () {
         var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
         a.download = 'administratie-backup-' + vandaag() + '.json'; a.click();
@@ -381,6 +409,7 @@
         Object.assign(data.instellingen, { naam: $('#s_naam').value.trim(), contact: $('#s_contact').value.trim(), adres: $('#s_adres').value.trim(), postcodePlaats: $('#s_pp').value.trim(),
           email: $('#s_email').value.trim(), kvk: $('#s_kvk').value.trim(), btw: $('#s_btw').value.trim(), iban: $('#s_iban').value.trim(), tnv: $('#s_tnv').value.trim(), bank: $('#s_bank').value.trim(),
           termijn: parseInt($('#s_term').value, 10) || 30, btwPct: +$('#s_pct').value, loon: num($('#s_loon').value), urencriterium: $('#s_uren').value, starter: $('#s_start').checked });
+        if (nieuwLogo) Object.assign(data.instellingen, nieuwLogo);
         toon('Instellingen opgeslagen.', 'ok'); render(); bewaar();
       };
     } };

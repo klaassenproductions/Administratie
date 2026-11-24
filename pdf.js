@@ -41,7 +41,12 @@
     // Kop
     doc.setFillColor(BLUE[0], BLUE[1], BLUE[2]); doc.rect(0, 0, W, 6, 'F');
     doc.setFont('helvetica', 'bold'); doc.setFontSize(20); kleur(INK);
-    doc.text(inst.naam || '', M, 24);
+    if (inst.logo) {
+      var lw = 52, lh = lw * (inst.logoRatio || 0.3);
+      doc.addImage(inst.logo, 'PNG', M, 24 - lh + 3, lw, lh);
+    } else {
+      doc.text(inst.naam || '', M, 24);
+    }
     doc.setFontSize(20); kleur(BLUE); doc.text('FACTUUR', W - M, 24, { align: 'right' });
 
     // Van / Aan
